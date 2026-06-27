@@ -140,7 +140,7 @@ export async function ensureMyCurExport(accountId: string, operator: string) {
             } as never),
           ),
         );
-        exportArn = (createResult as Record<string, unknown>).ExportArn as string;
+        exportArn = (createResult as unknown as { ExportArn?: string }).ExportArn;
       } catch (err: unknown) {
         const error = err as { name?: string; message?: string };
         // ConflictException means export already exists
@@ -228,9 +228,9 @@ export async function checkCurHealth(accountId: string, operator: string) {
         bcmClient.send(new GetExportCommand({ ExportArn: curExport.exportArn! })),
       );
 
-      const exportData = (result as Record<string, unknown>).Export as Record<string, unknown>;
-      const status = exportData?.Status as Record<string, unknown>;
-      const statusCode = (status?.StatusCode as string)?.toUpperCase();
+      const exportData = (result as unknown as { Export?: { Status?: { StatusCode?: string; StatusReason?: string; LastUpdatedDate?: string } } }).Export;
+      const status = exportData?.Status;
+      const statusCode = status?.StatusCode?.toUpperCase();
 
       let health: CurHealth = "pending";
       if (statusCode === "HEALTHY" || statusCode === "ACTIVE") {
@@ -244,7 +244,7 @@ export async function checkCurHealth(accountId: string, operator: string) {
         data: {
           health,
           lastDeliveryAt: status?.LastUpdatedDate
-            ? new Date(status.LastUpdatedDate as string)
+            ? new Date(status.LastUpdatedDate)
             : undefined,
         },
       });
