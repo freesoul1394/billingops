@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+.kiro
+infra/cdk.out
+infra/node_modules
+coverage
+*.md

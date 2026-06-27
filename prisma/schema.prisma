@@ -1,0 +1,228 @@
+// Billops — Prisma schema (design.md §3)
+// Aurora PostgreSQL Serverless v2
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum ConnectionType {
+  role
+  keys
+}
+
+enum AccountStatus {
+  active
+  inactive
+}
+
+enum AccountRole {
+  distributor_pma
+  partner_pma
+  customer_org
+  linked_account
+}
+
+enum DirectorySource {
+  auto_chain
+  auto_cur
+  manual
+}
+
+enum BillingView {
+  my
+  showback
+}
+
+enum CurHealth {
+  healthy
+  unhealthy
+  pending
+}
+
+// ─── Tables ──────────────────────────────────────────────────────────────────
+
+/// One row per onboarded distributor PMA
+model OnboardedAccount {
+  id                   String         @id @default(uuid()) @db.Uuid
+  accountId            String         @unique @map("account_id") @db.Char(12)
+  alias                String?
+  country              String
+  connectionType       ConnectionType @map("connection_type")
+  roRoleArn            String?        @map("ro_role_arn")
+  provisioningRoleArn  String?        @map("provisioning_role_arn")
+  externalId           String?        @map("external_id")
+  secretRef            String?        @map("secret_ref") // KMS-encrypted reference
+  status               AccountStatus  @default(active)
+  lastValidatedAt      DateTime?      @map("last_validated_at")
+  createdBy            String         @map("created_by")
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+
+  relationships    RelationshipCache[]
+  invoices         InvoiceCache[]
+  auditLogs        AuditLog[]
+  curExports       CurExport[]
+  curLineItems     CurLineItem[]
+  costMarginCache  CostMarginCache[]
+
+  @@map("onboarded_account")
+}
+
+/// Snapshot of inbound responsibility transfers (= partner PMAs)
+model RelationshipCache {
+  id                  String   @id @default(uuid()) @db.Uuid
+  onboardedAccountId  String   @map("onboarded_account_id") @db.Uuid
+  transferId          String   @map("transfer_id") // e.g. rt-...
+  sourceAccountId     String   @map("source_account_id") @db.Char(12)
+  sourceAccountEmail  String?  @map("source_account_email")
+  transferName        String?  @map("transfer_name") // partner name
+  status              String   // ACTIVE, ACCEPTED, WITHDRAWN, etc.
+  startTs             DateTime? @map("start_ts")
+  endTs               DateTime? @map("end_ts")
+  type                String   @default("BILLING")
+  fetchedAt           DateTime @map("fetched_at")
+
+  onboardedAccount OnboardedAccount @relation(fields: [onboardedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([onboardedAccountId, transferId])
+  @@index([sourceAccountId])
+  @@index([status])
+  @@map("relationship_cache")
+}
+
+/// Snapshot of ListInvoiceSummaries per billing period
+model InvoiceCache {
+  id                   String   @id @default(uuid()) @db.Uuid
+  onboardedAccountId   String   @map("onboarded_account_id") @db.Uuid
+  invoiceId            String   @map("invoice_id")
+  invoiceType          String?  @map("invoice_type")
+  accountId            String   @map("account_id") @db.Char(12)
+  billSourceAccounts   Json     @map("bill_source_accounts") // string[]
+  billingYear          Int      @map("billing_year")
+  billingMonth         Int      @map("billing_month")
+  issuedDate           DateTime? @map("issued_date")
+  dueDate              DateTime? @map("due_date")
+  totalBaseAmount      Decimal? @map("total_base_amount") @db.Decimal(20, 6)
+  baseCurrency         String?  @map("base_currency") @db.VarChar(3)
+  totalPaymentAmount   Decimal? @map("total_payment_amount") @db.Decimal(20, 6)
+  paymentCurrency      String?  @map("payment_currency") @db.VarChar(3)
+  amountBreakdown      Json?    @map("amount_breakdown") // taxes/fees/discounts
+  fetchedAt            DateTime @map("fetched_at")
+
+  onboardedAccount OnboardedAccount @relation(fields: [onboardedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([onboardedAccountId, invoiceId])
+  @@index([billingYear, billingMonth])
+  @@index([accountId])
+  @@map("invoice_cache")
+}
+
+/// Audit log for cross-account calls
+model AuditLog {
+  id                  String   @id @default(uuid()) @db.Uuid
+  operator            String
+  onboardedAccountId  String?  @map("onboarded_account_id") @db.Uuid
+  action              String
+  requestId           String?  @map("request_id")
+  ts                  DateTime @default(now())
+  outcome             String?
+
+  onboardedAccount OnboardedAccount? @relation(fields: [onboardedAccountId], references: [id], onDelete: SetNull)
+
+  @@index([onboardedAccountId])
+  @@index([ts])
+  @@map("audit_log")
+}
+
+/// Hierarchical account directory — replaces opening PDFs
+model AccountDirectory {
+  accountId        String          @id @map("account_id") @db.Char(12)
+  role             AccountRole
+  parentAccountId  String?         @map("parent_account_id") @db.Char(12)
+  country          String?
+  partnerName      String?         @map("partner_name")
+  customerName     String?         @map("customer_name")
+  friendlyLabel    String?         @map("friendly_label")
+  source           DirectorySource
+  mappedBy         String?         @map("mapped_by")
+  mappedAt         DateTime?       @map("mapped_at")
+  needsReview      Boolean         @default(false) @map("needs_review")
+
+  parent   AccountDirectory?  @relation("DirectoryHierarchy", fields: [parentAccountId], references: [accountId])
+  children AccountDirectory[] @relation("DirectoryHierarchy")
+
+  @@index([parentAccountId])
+  @@index([partnerName])
+  @@index([customerName])
+  @@index([needsReview])
+  @@map("account_directory")
+}
+
+/// Registry of CUR exports — one per distributor PMA per billing view
+model CurExport {
+  id                  String      @id @default(uuid()) @db.Uuid
+  onboardedAccountId  String      @map("onboarded_account_id") @db.Uuid
+  exportArn           String?     @map("export_arn")
+  exportName          String?     @map("export_name")
+  billingView         BillingView @map("billing_view")
+  billingViewArn      String?     @map("billing_view_arn")
+  s3Bucket            String?     @map("s3_bucket")
+  s3Prefix            String?     @map("s3_prefix")
+  region              String      @default("us-east-1")
+  health              CurHealth   @default(pending)
+  lastDeliveryAt      DateTime?   @map("last_delivery_at")
+  createdAt           DateTime    @default(now()) @map("created_at")
+
+  onboardedAccount OnboardedAccount @relation(fields: [onboardedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([onboardedAccountId, billingView])
+  @@map("cur_export")
+}
+
+/// Ingested CUR line items (materialized rollup from Athena)
+model CurLineItem {
+  id                   String  @id @default(uuid()) @db.Uuid
+  onboardedAccountId   String  @map("onboarded_account_id") @db.Uuid
+  billingYear          Int     @map("billing_year")
+  billingMonth         Int     @map("billing_month")
+  billPayerAccountId   String  @map("bill_payer_account_id") @db.Char(12)
+  usageAccountId       String  @map("usage_account_id") @db.Char(12)
+  chargeType           String  @map("charge_type") // line_item_line_item_type
+  unblendedCost        Decimal @map("unblended_cost") @db.Decimal(20, 6)
+  currency             String  @db.VarChar(3)
+
+  onboardedAccount OnboardedAccount @relation(fields: [onboardedAccountId], references: [id], onDelete: Cascade)
+
+  @@index([onboardedAccountId, billingYear, billingMonth])
+  @@index([usageAccountId])
+  @@index([chargeType])
+  @@map("cur_line_item")
+}
+
+/// Cost Explorer live/quick margin cache (fallback when CUR hasn't delivered)
+model CostMarginCache {
+  id                    String   @id @default(uuid()) @db.Uuid
+  onboardedAccountId    String   @map("onboarded_account_id") @db.Uuid
+  sourceAccountId       String   @map("source_account_id") @db.Char(12)
+  billingYear           Int      @map("billing_year")
+  billingMonth          Int      @map("billing_month")
+  grossUsageCost        Decimal? @map("gross_usage_cost") @db.Decimal(20, 6)
+  netCost               Decimal? @map("net_cost") @db.Decimal(20, 6)
+  discountAmount        Decimal? @map("discount_amount") @db.Decimal(20, 6)
+  discountPct           Decimal? @map("discount_pct") @db.Decimal(8, 4)
+  currency              String?  @db.VarChar(3)
+  chargeTypeBreakdown   Json?    @map("charge_type_breakdown")
+  fetchedAt             DateTime @map("fetched_at")
+
+  onboardedAccount OnboardedAccount @relation(fields: [onboardedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([onboardedAccountId, sourceAccountId, billingYear, billingMonth])
+  @@map("cost_margin_cache")
+}

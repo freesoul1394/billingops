@@ -1,0 +1,6 @@
+node_modules
+.next
+out
+coverage
+prisma/migrations
+infra/cdk.out
