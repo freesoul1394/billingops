@@ -62,13 +62,12 @@ export async function ensureMyCurExport(accountId: string, operator: string) {
         billingClient.send(new ListBillingViewsCommand({})),
       );
 
-      const myView = (billingViews as Record<string, unknown[]>).BillingViews?.find(
-        (v: unknown) => {
-          const view = v as { Name?: string; BillingViewArn?: string };
-          return view.Name?.toLowerCase().includes("my view") ||
-            view.Name?.toLowerCase().includes("my-view");
-        },
-      ) as { BillingViewArn?: string } | undefined;
+      const viewsOutput = billingViews as unknown as { BillingViews?: Array<{ Name?: string; BillingViewArn?: string }> };
+      const myView = viewsOutput.BillingViews?.find(
+        (v) =>
+          v.Name?.toLowerCase().includes("my view") ||
+          v.Name?.toLowerCase().includes("my-view"),
+      );
 
       if (!myView?.BillingViewArn) {
         throw new Error("Could not find 'My view' Billing View on this account");
