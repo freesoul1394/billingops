@@ -71,7 +71,6 @@ export async function syncInvoices(
         credentials,
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const invoices = await paginateAll<any>({
         send: (input) => invoicingClient.send(new ListInvoiceSummariesCommand(input)),
         input: {
@@ -86,7 +85,6 @@ export async function syncInvoices(
       for (const inv of invoices) {
         const invoiceId = inv.InvoiceId as string;
         const billSourceAccounts = ((inv.BillSourceAccounts as unknown[]) ?? []).map(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (a: any) => a.AccountId ?? String(a),
         );
 
@@ -189,7 +187,6 @@ export async function getInvoicePdfUrl(accountId: string, invoiceId: string, ope
         invoicingClient.send(new GetInvoicePDFCommand({ InvoiceId: invoiceId })),
       );
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return { url: (response as any).Url as string };
     },
   );

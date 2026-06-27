@@ -13,13 +13,10 @@ import { withBackoff } from "./backoff";
  */
 interface PaginateOptions<TItem> {
   /** The function that sends a page request. Receives { NextToken, ...input }. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   send: (input: any) => Promise<any>;
   /** Base input (without NextToken) */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   input: Record<string, any>;
   /** Extract items from the response */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getItems: (output: any) => TItem[] | undefined;
   /** Max results per page (optional) */
   maxResults?: number;
