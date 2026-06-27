@@ -5,12 +5,6 @@
 
 import prisma from "@/db";
 import { assumeRole, paginateAll, withAudit, withBackoff } from "@/aws";
-import { createAwsClient } from "@/aws/clients";
-import type { Credentials } from "@aws-sdk/types";
-
-// The Invoicing client — using generic factory since it's a newer SDK client
-// Import will resolve after npm install
-// import { InvoicingClient, ListInvoiceSummariesCommand, GetInvoicePDFCommand } from "@aws-sdk/client-invoicing";
 
 const MIN_BILLING_YEAR = 2025;
 const MIN_BILLING_MONTH = 6; // Data floor: June 2025
@@ -68,7 +62,6 @@ export async function syncInvoices(
         sessionName: `sync-inv-${account.accountId}`,
       });
 
-      // Use dynamic import for the Invoicing client
       const { InvoicingClient, ListInvoiceSummariesCommand } = await import(
         "@aws-sdk/client-invoicing"
       );
@@ -78,23 +71,23 @@ export async function syncInvoices(
         credentials,
       });
 
-      const invoices = await paginateAll({
-        send: (input: Record<string, unknown>) =>
-          invoicingClient.send(new ListInvoiceSummariesCommand(input as never)),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const invoices = await paginateAll<any>({
+        send: (input) => invoicingClient.send(new ListInvoiceSummariesCommand(input)),
         input: {
           Filter: { BillingPeriod: { Month: billingMonth, Year: billingYear } },
           MaxResults: 100,
         },
-        getItems: (output: Record<string, unknown>) =>
-          (output as { InvoiceSummaries?: unknown[] }).InvoiceSummaries as unknown[] | undefined,
+        getItems: (output) => output.InvoiceSummaries,
       });
 
       const now = new Date();
 
-      for (const inv of invoices as Record<string, unknown>[]) {
+      for (const inv of invoices) {
         const invoiceId = inv.InvoiceId as string;
         const billSourceAccounts = ((inv.BillSourceAccounts as unknown[]) ?? []).map(
-          (a: unknown) => (a as { AccountId?: string }).AccountId ?? String(a),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (a: any) => a.AccountId ?? String(a),
         );
 
         await prisma.invoiceCache.upsert({
@@ -107,30 +100,30 @@ export async function syncInvoices(
           create: {
             onboardedAccountId: account.id,
             invoiceId,
-            invoiceType: inv.InvoiceType as string | undefined,
-            accountId: (inv.AccountId as string) ?? accountId,
+            invoiceType: inv.InvoiceType ?? undefined,
+            accountId: inv.AccountId ?? accountId,
             billSourceAccounts,
             billingYear,
             billingMonth,
-            issuedDate: inv.IssuedDate ? new Date(inv.IssuedDate as string) : undefined,
-            dueDate: inv.DueDate ? new Date(inv.DueDate as string) : undefined,
-            totalBaseAmount: (inv.BaseCurrencyAmount as { Amount?: number })?.Amount,
-            baseCurrency: (inv.BaseCurrencyAmount as { CurrencyCode?: string })?.CurrencyCode,
-            totalPaymentAmount: (inv.PaymentCurrencyAmount as { Amount?: number })?.Amount,
-            paymentCurrency: (inv.PaymentCurrencyAmount as { CurrencyCode?: string })?.CurrencyCode,
-            amountBreakdown: inv.AmountBreakdown as object | undefined,
+            issuedDate: inv.IssuedDate ? new Date(inv.IssuedDate) : undefined,
+            dueDate: inv.DueDate ? new Date(inv.DueDate) : undefined,
+            totalBaseAmount: inv.BaseCurrencyAmount?.Amount,
+            baseCurrency: inv.BaseCurrencyAmount?.CurrencyCode,
+            totalPaymentAmount: inv.PaymentCurrencyAmount?.Amount,
+            paymentCurrency: inv.PaymentCurrencyAmount?.CurrencyCode,
+            amountBreakdown: inv.AmountBreakdown ?? undefined,
             fetchedAt: now,
           },
           update: {
-            invoiceType: inv.InvoiceType as string | undefined,
+            invoiceType: inv.InvoiceType ?? undefined,
             billSourceAccounts,
-            issuedDate: inv.IssuedDate ? new Date(inv.IssuedDate as string) : undefined,
-            dueDate: inv.DueDate ? new Date(inv.DueDate as string) : undefined,
-            totalBaseAmount: (inv.BaseCurrencyAmount as { Amount?: number })?.Amount,
-            baseCurrency: (inv.BaseCurrencyAmount as { CurrencyCode?: string })?.CurrencyCode,
-            totalPaymentAmount: (inv.PaymentCurrencyAmount as { Amount?: number })?.Amount,
-            paymentCurrency: (inv.PaymentCurrencyAmount as { CurrencyCode?: string })?.CurrencyCode,
-            amountBreakdown: inv.AmountBreakdown as object | undefined,
+            issuedDate: inv.IssuedDate ? new Date(inv.IssuedDate) : undefined,
+            dueDate: inv.DueDate ? new Date(inv.DueDate) : undefined,
+            totalBaseAmount: inv.BaseCurrencyAmount?.Amount,
+            baseCurrency: inv.BaseCurrencyAmount?.CurrencyCode,
+            totalPaymentAmount: inv.PaymentCurrencyAmount?.Amount,
+            paymentCurrency: inv.PaymentCurrencyAmount?.CurrencyCode,
+            amountBreakdown: inv.AmountBreakdown ?? undefined,
             fetchedAt: now,
           },
         });
@@ -196,7 +189,8 @@ export async function getInvoicePdfUrl(accountId: string, invoiceId: string, ope
         invoicingClient.send(new GetInvoicePDFCommand({ InvoiceId: invoiceId })),
       );
 
-      return { url: (response as Record<string, unknown>).Url as string };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return { url: (response as any).Url as string };
     },
   );
 }

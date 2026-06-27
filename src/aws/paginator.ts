@@ -6,24 +6,21 @@
 
 import { withBackoff } from "./backoff";
 
-interface PaginatedInput {
-  NextToken?: string;
-  MaxResults?: number;
-}
-
-interface PaginatedOutput {
-  NextToken?: string;
-}
-
-type SendFn<TInput, TOutput> = (input: TInput) => Promise<TOutput>;
-
-interface PaginateOptions<TInput extends PaginatedInput, TOutput extends PaginatedOutput, TItem> {
-  /** The function that sends the command (e.g. client.send bound to command) */
-  send: SendFn<TInput, TOutput>;
+/**
+ * Options for paginateAll.
+ * Uses `any` at the SDK boundary since AWS command outputs don't satisfy
+ * Record<string, unknown> index signatures under strict mode.
+ */
+interface PaginateOptions<TItem> {
+  /** The function that sends a page request. Receives { NextToken, ...input }. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  send: (input: any) => Promise<any>;
   /** Base input (without NextToken) */
-  input: Omit<TInput, "NextToken">;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  input: Record<string, any>;
   /** Extract items from the response */
-  getItems: (output: TOutput) => TItem[] | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getItems: (output: any) => TItem[] | undefined;
   /** Max results per page (optional) */
   maxResults?: number;
 }
@@ -32,11 +29,7 @@ interface PaginateOptions<TInput extends PaginatedInput, TOutput extends Paginat
  * Paginates through all pages, collecting all items.
  * Never stops on an empty page if NextToken is present.
  */
-export async function paginateAll<
-  TInput extends PaginatedInput,
-  TOutput extends PaginatedOutput,
-  TItem,
->(options: PaginateOptions<TInput, TOutput, TItem>): Promise<TItem[]> {
+export async function paginateAll<TItem>(options: PaginateOptions<TItem>): Promise<TItem[]> {
   const { send, input, getItems, maxResults } = options;
   const allItems: TItem[] = [];
   let nextToken: string | undefined;
@@ -46,7 +39,7 @@ export async function paginateAll<
       ...input,
       NextToken: nextToken,
       ...(maxResults ? { MaxResults: maxResults } : {}),
-    } as TInput;
+    };
 
     const output = await withBackoff(() => send(pageInput));
     const items = getItems(output);

@@ -13,10 +13,10 @@ describe("paginateAll", () => {
       .mockResolvedValueOnce({ Items: ["a", "b"], NextToken: "tok1" })
       .mockResolvedValueOnce({ Items: ["c"], NextToken: undefined });
 
-    const items = await paginateAll({
+    const items = await paginateAll<string>({
       send,
       input: {},
-      getItems: (output) => (output as { Items: string[] }).Items,
+      getItems: (output) => output.Items,
     });
 
     expect(items).toEqual(["a", "b", "c"]);
@@ -30,10 +30,10 @@ describe("paginateAll", () => {
       .mockResolvedValueOnce({ Items: [], NextToken: "tok2" }) // empty page!
       .mockResolvedValueOnce({ Items: ["b"], NextToken: undefined });
 
-    const items = await paginateAll({
+    const items = await paginateAll<string>({
       send,
       input: {},
-      getItems: (output) => (output as { Items: string[] }).Items,
+      getItems: (output) => output.Items,
     });
 
     expect(items).toEqual(["a", "b"]);
@@ -46,10 +46,10 @@ describe("paginateAll", () => {
       .mockResolvedValueOnce({ Items: undefined, NextToken: "tok1" })
       .mockResolvedValueOnce({ Items: ["x"], NextToken: undefined });
 
-    const items = await paginateAll({
+    const items = await paginateAll<string>({
       send,
       input: {},
-      getItems: (output) => (output as { Items?: string[] }).Items,
+      getItems: (output) => output.Items,
     });
 
     expect(items).toEqual(["x"]);
@@ -62,10 +62,10 @@ describe("paginateAll", () => {
       .mockResolvedValueOnce({ Items: ["a"], NextToken: "page2" })
       .mockResolvedValueOnce({ Items: ["b"], NextToken: undefined });
 
-    await paginateAll({
+    await paginateAll<string>({
       send,
       input: { MaxResults: 10 },
-      getItems: (output) => (output as { Items: string[] }).Items,
+      getItems: (output) => output.Items,
     });
 
     expect(send).toHaveBeenCalledWith({ MaxResults: 10, NextToken: undefined });
